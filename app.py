@@ -3,130 +3,49 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ---------------------------------------------------------
-# 1. 설정 (가장 윗줄)
+# 1. 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="Whale Hunter", layout="wide", page_icon="🐋")
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------
-# 2. 스타일 CSS (변수 충돌 방지를 위해 일반 문자열로 분리)
+# 2. CSS (스타일) - 들여쓰기 문제 해결을 위해 한 줄로 압축하거나 별도 처리
 # ---------------------------------------------------------
-# 이 부분은 f-string을 쓰지 않아 절대 깨지지 않습니다.
-MOBILE_CSS = """
+st.markdown("""
 <style>
-    /* 전체 레이아웃 패딩 제거 (폰 화면 꽉 차게) */
-    .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 5rem !important;
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-        max-width: 100% !important;
-    }
-    
-    /* UI 요소 숨김 및 다크모드 배경 */
+    .block-container { padding-top: 0rem !important; padding-bottom: 5rem !important; padding-left: 0.5rem !important; padding-right: 0.5rem !important; max-width: 100% !important; }
     header, footer { visibility: hidden; }
     .stApp { background-color: #000000; color: #f2f2f7; }
-    
-    /* 입력창 및 버튼 디자인 */
-    div[data-baseweb="input"] > div {
-        background-color: #1c1c1e !important;
-        color: white !important;
-        border: 1px solid #333 !important;
-        border-radius: 12px !important;
-    }
+    div[data-baseweb="input"] > div { background-color: #1c1c1e !important; color: white !important; border: 1px solid #333 !important; border-radius: 12px !important; }
     input { color: white !important; }
-    button {
-        background-color: #0A84FF !important;
-        color: white !important;
-        border-radius: 12px !important;
-        height: 3rem !important;
-        font-weight: 700 !important;
-        border: none !important;
-    }
-
-    /* 결과화면 컨테이너 */
-    .mobile-wrapper {
-        font-family: -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-        padding: 0 5px 40px 5px;
-        color: #f2f2f7;
-    }
-
-    /* 헤더 섹션 */
-    .header-row {
-        display: flex; justify-content: space-between; align-items: center;
-        border-bottom: 1px solid #333; padding: 15px 5px; margin-bottom: 20px;
-    }
-    .ticker-name { font-size: 30px; font-weight: 800; line-height: 1; margin: 0; }
-    .ticker-sub { font-size: 13px; color: #8e8e93; margin-top: 5px; }
+    button { background-color: #0A84FF !important; color: white !important; border-radius: 12px !important; height: 3rem !important; font-weight: 700 !important; border: none !important; }
     
-    .score-badge {
-        background: #1c1c1e; padding: 10px 15px; border-radius: 14px;
-        border: 1px solid #333; text-align: center; min-width: 80px;
-    }
-    .score-num { font-size: 26px; font-weight: 900; line-height: 1; }
-    .score-txt { font-size: 10px; color: #8e8e93; font-weight: 600; margin-top: 3px; }
-
-    /* 통계 그리드 */
-    .stat-grid { display: flex; gap: 10px; margin-bottom: 15px; }
-    .stat-box {
-        flex: 1; background: #1c1c1e; padding: 12px; border-radius: 12px; text-align: center;
-    }
-    .stat-label { font-size: 11px; color: #8e8e93; margin-bottom: 2px; }
-    .stat-value { font-size: 20px; font-weight: 800; }
-
-    /* 메인 카드 */
-    .main-card {
-        background: #1c1c1e; border-radius: 16px; padding: 16px;
-        margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    }
-    .card-title { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 15px; }
+    /* 카드 디자인 */
+    .mobile-box { font-family: -apple-system, sans-serif; padding: 0 5px 40px 5px; color: #f2f2f7; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding: 15px 5px; margin-bottom: 20px; }
+    .title { font-size: 30px; font-weight: 800; margin: 0; line-height: 1; }
+    .sub { font-size: 13px; color: #888; margin-top: 5px; }
+    .badge { background: #1c1c1e; padding: 10px 15px; border-radius: 14px; border: 1px solid #333; text-align: center; }
+    .score { font-size: 26px; font-weight: 900; line-height: 1; }
     
-    .info-row {
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 10px; font-size: 14px;
-    }
-    .lbl { color: #8e8e93; }
-    .val { font-weight: 600; color: #fff; }
-
-    /* 드라이버 카드 그리드 */
-    .driver-grid {
-        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px;
-    }
-    .driver-item {
-        background: #2c2c2e; padding: 10px 4px; border-radius: 10px; text-align: center;
-    }
+    .grid { display: flex; gap: 10px; margin-bottom: 15px; }
+    .stat { flex: 1; background: #1c1c1e; padding: 12px; border-radius: 12px; text-align: center; }
+    .val { font-size: 20px; font-weight: 800; }
+    .lbl { font-size: 11px; color: #888; }
     
-    /* 가로 스크롤 테이블 */
-    .scroll-box {
-        overflow-x: auto; -webkit-overflow-scrolling: touch;
-        margin-top: 10px; padding-bottom: 10px;
-    }
-    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-    td { font-size: 12px; padding: 8px 10px; border-bottom: 1px solid #333; }
-    .sticky-col {
-        position: sticky; left: 0; background: #1c1c1e; z-index: 5;
-        border-right: 1px solid #333; font-weight: 600; color: #999;
-    }
-    
-    .section-head { font-size: 16px; font-weight: 800; margin: 30px 0 10px 0; color: #f2f2f7; }
+    .card { background: #1c1c1e; border-radius: 16px; padding: 16px; margin-bottom: 20px; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+    .drivers { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+    .d-item { background: #2c2c2e; padding: 10px 4px; border-radius: 10px; text-align: center; }
 </style>
-"""
-st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 3. 데이터 로직 (안전한 함수들)
+# 3. 데이터 로직
 # ---------------------------------------------------------
-# 컬러 상수 (iOS 스타일)
-C_UP = "#30D158"   # 초록
-C_DOWN = "#FF453A" # 빨강
-C_MID = "#8E8E93"  # 회색
-C_HIGH = "#BF5AF2" # 보라
-C_BLUE = "#64D2FF" # 파랑
-C_WARN = "#FFD60A" # 노랑
-
 @st.cache_data(ttl=1800)
 def get_data(ticker):
     try:
@@ -134,18 +53,12 @@ def get_data(ticker):
         if isinstance(df.columns, pd.MultiIndex):
             try: df.columns = df.columns.get_level_values(0)
             except: pass
-        if len(df) < 60: return None
+        if len(df) < 50: return None
         
-        # 지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
-        
-        # OBV
         df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
-        
-        # Volatility
         df['Vol'] = (df['High'] - df['Low']) / df['Close'] * 100
-        
         df.dropna(inplace=True)
         return df
     except: return None
@@ -154,194 +67,102 @@ def get_data(ticker):
 def get_info(ticker):
     try:
         info = yf.Ticker(ticker).info
-        return {
-            'name': info.get('longName', ticker),
-            'cap': info.get('marketCap', 0)
-        }
+        return {'name': info.get('longName', ticker), 'cap': info.get('marketCap', 0)}
     except: return {'name': ticker, 'cap': 0}
 
-def run_analysis(df):
+def analyze(df):
     last = df.iloc[-1]
-    
-    # 1. 몬테카를로 (단순화)
-    vol = df['Vol'].tail(30).mean() / 100
-    target_price = last['Close'] * 1.3
-    
-    sims = []
-    np.random.seed(42)
-    for _ in range(300):
-        p = last['Close']
-        prices = []
-        for _ in range(120): # 120일
-            p *= (1 + np.random.normal(0, vol))
-            prices.append(p)
-        sims.append(max(prices))
-        
-    win_prob = np.mean([1 if s >= target_price else 0 for s in sims]) * 100
-    peak_yield = (np.median(sims) - last['Close']) / last['Close'] * 100
-    
-    # 2. 스코어링
     score = 50
-    drivers = [] # (Title, Value, Color)
     
     # Trend
-    if last['Close'] > last['MA20']:
-        score += 15
-        drivers.append(('Trend', 'UP', C_UP))
-    else:
-        score -= 15
-        drivers.append(('Trend', 'DOWN', C_DOWN))
-        
-    # Whale (OBV)
-    obv_change = df['OBV'].diff(20).iloc[-1]
-    if obv_change > 0:
-        score += 15
-        drivers.append(('Whale', 'BUY', C_UP))
-    else:
-        score -= 10
-        drivers.append(('Whale', 'SELL', C_DOWN))
-        
-    # Volatility
-    if last['Vol'] > 3.5:
-        drivers.append(('Vol', 'HIGH', C_HIGH))
-    else:
-        drivers.append(('Vol', 'NORMAL', C_MID))
-        
-    score = max(0, min(100, int(score)))
+    if last['Close'] > last['MA20']: trend, t_col = "UP", "#30D158"
+    else: trend, t_col = "DOWN", "#FF453A"
+    if trend == "UP": score += 20
+    else: score -= 20
     
-    # Target Setup
+    # Whale
+    obv_chg = df['OBV'].diff(20).iloc[-1]
+    if obv_chg > 0: whale, w_col = "BUY", "#30D158"
+    else: whale, w_col = "SELL", "#FF453A"
+    if whale == "BUY": score += 20
+    else: score -= 10
+    
+    # Vol
+    if last['Vol'] > 3.0: vol, v_col = "HIGH", "#BF5AF2"
+    else: vol, v_col = "NORM", "#8E8E93"
+    
+    score = max(0, min(100, score))
+    main_col = "#30D158" if score >= 60 else "#FF453A"
+    
+    target = last['Close'] + (last['ATR'] * 3)
     stop = last['Close'] - (last['ATR'] * 2)
-    target = last['Close'] + (last['ATR'] * 3.5)
-    
-    # Color 결정
-    main_color = C_UP if score >= 70 else (C_WARN if score >= 40 else C_DOWN)
     
     return {
-        'score': score, 'main_color': main_color,
-        'prob': win_prob, 'peak': peak_yield,
-        'drivers': drivers,
-        'close': last['Close'], 'stop': stop, 'target': target,
-        'vol_ratio': (last['Volume'] / df['Volume'].tail(20).mean()) * 100
+        'score': score, 'col': main_col,
+        'drivers': [(trend, t_col, 'Trend'), (whale, w_col, 'Whale'), (vol, v_col, 'Vol')],
+        'close': last['Close'], 'target': target, 'stop': stop
     }
 
 # ---------------------------------------------------------
-# 4. HTML 생성 (CSS 충돌 방지를 위해 인라인 스타일 사용)
+# 4. 렌더링 (들여쓰기 완전 제거 방식)
 # ---------------------------------------------------------
-def make_html_output(ticker, info, res):
+def render_ui(t, i, r):
     # 시가총액
-    cap = info['cap']
-    if cap > 1e12: cap_str = f"{cap/1e12:.1f}T"
-    elif cap > 1e9: cap_str = f"{cap/1e9:.1f}B"
-    else: cap_str = "-"
+    cap = i['cap']
+    cap_str = f"{cap/1e9:.1f}B" if cap > 1e9 else "-"
     
-    # 날짜 계산
-    est_days = "45-60d" # 단순화
-
-    # 드라이버 카드 HTML 조립
-    drivers_html = ""
-    for title, val, col in res['drivers']:
-        drivers_html += f"""
-        <div class="driver-item" style="border-top: 3px solid {col};">
-            <div style="font-size:10px; color:#8e8e93;">{title}</div>
-            <div style="font-size:13px; font-weight:800; color:#fff;">{val}</div>
-        </div>
-        """
-        
-    # 남은 칸 채우기 (UI 깨짐 방지)
-    while len(res['drivers']) < 3:
-        drivers_html += """<div class="driver-item"><div style="color:#333">-</div></div>"""
-        res['drivers'].append(("", "", ""))
-
-    # 최종 HTML 문자열 (f-string 사용하되 CSS 블록 없음)
-    html = f"""
-    <div class="mobile-wrapper">
-        <div class="header-row">
-            <div>
-                <div class="ticker-name">{ticker}</div>
-                <div class="ticker-sub">{info['name'][:15]}.. • {cap_str}</div>
-            </div>
-            <div class="score-badge">
-                <div class="score-num" style="color: {res['main_color']};">{res['score']}</div>
-                <div class="score-txt">AI SCORE</div>
-            </div>
-        </div>
-        
-        <div class="stat-grid">
-            <div class="stat-box">
-                <div class="stat-label">Win Prob</div>
-                <div class="stat-value" style="color: {C_UP if res['prob']>40 else '#fff'}">{res['prob']:.0f}%</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Max Peak</div>
-                <div class="stat-value" style="color: {C_HIGH}">+{res['peak']:.0f}%</div>
-            </div>
-        </div>
-        
-        <div class="main-card" style="border: 1px solid {res['main_color']}44;">
-            <div class="card-title">🎯 Trading Setup</div>
-            <div class="info-row">
-                <span class="lbl">Entry Price</span>
-                <span class="val">${res['close']:.2f}</span>
-            </div>
-            <div class="info-row">
-                <span class="lbl">Target (TP)</span>
-                <span class="val" style="color: {C_UP}">${res['target']:.2f}</span>
-            </div>
-            <div class="info-row">
-                <span class="lbl">Stop Loss (SL)</span>
-                <span class="val" style="color: {C_DOWN}">${res['stop']:.2f}</span>
-            </div>
-            <div style="margin-top:15px; pt-top:10px; border-top:1px dashed #333;">
-                <div class="info-row" style="margin-bottom:0;">
-                    <span class="lbl">Expected Time</span>
-                    <span class="val" style="color: {C_BLUE}">{est_days}</span>
-                </div>
-            </div>
-        </div>
-        
-        <div class="section-head">📊 Key Drivers</div>
-        <div class="driver-grid">
-            {drivers_html}
-        </div>
-        
-        <div class="section-head">📑 AI Comment</div>
-        <div class="main-card" style="font-size: 13px; line-height: 1.6; color: #ccc;">
-            System detected <b>{res['drivers'][0][1]}</b> trend with <b>{res['drivers'][1][1]}</b> whale volume.
-            Current volatility is <b>{res['drivers'][2][1]}</b>.
-            Volume ratio is <b>{res['vol_ratio']:.0f}%</b> compared to average.
-        </div>
-        
-        <div style="height: 50px;"></div>
-    </div>
-    """
-    return html
+    # HTML 조립 (들여쓰기 없이 연결)
+    h = ""
+    h += f'<div class="mobile-box">'
+    
+    # 헤더
+    h += f'<div class="header">'
+    h += f'<div><div class="title">{t}</div><div class="sub">{i["name"][:15]}.. • {cap_str}</div></div>'
+    h += f'<div class="badge"><div class="score" style="color:{r["col"]}">{r["score"]}</div></div>'
+    h += f'</div>'
+    
+    # 통계
+    h += f'<div class="grid">'
+    h += f'<div class="stat"><div class="lbl">Win Prob</div><div class="val" style="color:#30D158">High</div></div>'
+    h += f'<div class="stat"><div class="lbl">Target</div><div class="val" style="color:#64D2FF">${r["target"]:.0f}</div></div>'
+    h += f'</div>'
+    
+    # 전략
+    h += f'<div class="card" style="border:1px solid {r["col"]}44">'
+    h += f'<div class="row"><span style="color:#888">Entry</span><span>${r["close"]:.2f}</span></div>'
+    h += f'<div class="row"><span style="color:#888">Stop</span><span style="color:#FF453A">${r["stop"]:.2f}</span></div>'
+    h += f'</div>'
+    
+    # 드라이버
+    h += f'<div class="drivers">'
+    for val, col, title in r['drivers']:
+        h += f'<div class="d-item" style="border-top:3px solid {col}">'
+        h += f'<div style="font-size:10px; color:#888">{title}</div><div style="font-weight:800">{val}</div>'
+        h += f'</div>'
+    h += f'</div>'
+    
+    h += f'</div>'
+    
+    return h
 
 # ---------------------------------------------------------
-# 5. 실행부
+# 5. 실행
 # ---------------------------------------------------------
 st.title("🐋 Whale Hunter")
-st.caption("Mobile Optimized")
+st.caption("Mobile Edition")
 
-ticker_input = st.text_input("", placeholder="Ticker (e.g. NVDA)", value="NVDA")
+txt = st.text_input("", value="NVDA")
 
 if st.button("ANALYZE", use_container_width=True):
-    if not ticker_input:
-        st.error("Please enter a ticker")
-    else:
-        # 콤마 처리
-        t = ticker_input.split(',')[0].strip().upper()
-        
-        with st.spinner(f"Analyzing {t}..."):
-            try:
-                df = get_data(t)
-                info = get_info(t)
-                
-                if df is None:
-                    st.error("Data Load Failed")
-                else:
-                    res = run_analysis(df)
-                    # HTML 렌더링 (코드가 보이지 않음)
-                    st.markdown(make_html_output(t, info, res), unsafe_allow_html=True)
-                    
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+    t = txt.split(',')[0].strip().upper()
+    try:
+        df = get_data(t)
+        if df is not None:
+            info = get_info(t)
+            res = analyze(df)
+            # 여기가 핵심: 들여쓰기 없는 HTML 문자열을 넣음
+            st.markdown(render_ui(t, info, res), unsafe_allow_html=True)
+        else:
+            st.error("Data Load Failed")
+    except Exception as e:
+        st.error(str(e))
