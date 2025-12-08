@@ -2,85 +2,118 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from scipy.stats import pearsonr
 import logging
 import warnings
 from datetime import datetime, timedelta
 
-# 1. 설정 및 초기화
+# 1. 설정 및 초기화 (전문가용 다크 모드)
 st.set_page_config(page_title="WQA | Market Intelligence", layout="wide", page_icon="📊", initial_sidebar_state="collapsed")
 logger = logging.getLogger('yfinance')
 logger.setLevel(logging.CRITICAL)
 warnings.filterwarnings("ignore")
 
-# --- [UI/UX 디자인 CSS] ---
-# 화면 표시용 CSS + 다운로드 파일용 CSS 공통 관리
-COMMON_CSS = """
+# --- [UI/UX & CSS 디자인] ---
+# 스크롤 끊김 해결 및 전문가용 디자인 적용
+st.markdown("""
+    <style>
+    /* 폰트: 시스템 기본 산세리프 및 Pretendard 적용 */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
     
-    html, body {
+    html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }
+    
+    /* 배경색을 더 깊은 블랙으로 변경하여 고급스러움 강조 */
+    .stApp {
         background-color: #050505; 
         color: #E5E7EB;
-        margin: 0; padding: 0;
     }
     
-    /* 카드 박스 스타일 */
-    .box-dark {
-        background: #121212;
-        border: 1px solid #333;
-        border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 20px;
+    /* 상단 기본 헤더 숨기기 (깔끔하게) */
+    header {visibility: hidden;}
+    
+    /* 여백 최적화: 모바일에서 화면 꽉 차게 */
+    .block-container {
+        padding-top: 1rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+        padding-bottom: 5rem;
+        max-width: 1000px;
+        margin: 0 auto;
     }
-    
-    /* 헤더 스타일 */
-    .header-main {
-        display: flex; justify-content: space-between; align-items: flex-end;
-        margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 15px;
-    }
-    
-    /* 그리드 시스템 */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-responsive { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
-    
-    /* 스크롤 테이블 (모바일 가로 스크롤 완벽 지원) */
-    .scroll-x-container {
-        width: 100%;
-        overflow-x: auto;
-        white-space: nowrap;
-        -webkit-overflow-scrolling: touch; /* 아이폰 부드러운 스크롤 */
-    }
-    .scroll-x-content {
-        display: flex;
-        gap: 10px;
-        padding-bottom: 5px;
-    }
-    
-    /* Streamlit UI 덮어쓰기 (화면용) */
-    .stApp { background-color: #050505; }
-    header { visibility: hidden; }
-    .block-container { padding-top: 1rem; padding-bottom: 5rem; max-width: 800px; margin:0 auto; }
-    
-    /* 입력창 & 버튼 */
+
+    /* 입력창 디자인: 금융 터미널 스타일 */
     .stTextInput > div > div > input {
-        background-color: #1A1A1A; color: #fff; border: 1px solid #333; border-radius: 8px; height: 50px;
+        background-color: #1A1A1A;
+        color: #fff;
+        border: 1px solid #333;
+        border-radius: 8px;
+        height: 50px;
+        font-size: 16px; /* 모바일 확대 방지 사이즈 */
+        padding-left: 15px;
     }
+    .stTextInput > div > div > input:focus {
+        border-color: #00B0FF;
+        box-shadow: none;
+    }
+    
+    /* 버튼 디자인: 네온 포인트 */
     .stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        height: 50px;
         background: linear-gradient(90deg, #0066FF 0%, #00B0FF 100%);
-        color: white; border: none; height: 50px; font-weight: 700; border-radius: 8px; width: 100%;
+        color: white;
+        font-weight: 700;
+        border: none;
+        font-size: 1rem;
+        letter-spacing: 0.5px;
+        box-shadow: 0 4px 15px rgba(0, 176, 255, 0.2);
     }
-"""
+    .stButton > button:active {
+        transform: scale(0.98);
+    }
 
-# 화면에 CSS 적용
-st.markdown(f"<style>{COMMON_CSS}</style>", unsafe_allow_html=True)
+    /* 테이블 스크롤바 디자인 (숨김 처리하지만 기능은 유지) */
+    ::-webkit-scrollbar {
+        height: 4px;
+        width: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 2px;
+    }
+    
+    /* 모바일 반응형 처리 */
+    @media (max-width: 768px) {
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .header-main {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 2. 데이터 엔진 (기존 로직 유지)
+# 2. 참조 데이터 및 상수
 WINDOW_SIZE = 60
 FORECAST_DAYS = 30
-# 색상 상수
-C_BULL, C_BEAR, C_NEUT = "#00E676", "#FF5252", "#78909C"
-C_WARN, C_CYAN, C_PURP = "#FFD740", "#00B0FF", "#D500F9"
+TOP_N = 5
 
+C_BULL = "#00E676" # Green
+C_BEAR = "#FF5252" # Red
+C_NEUT = "#78909C" # Grey
+C_WARN = "#FFD740" # Yellow
+C_CYAN = "#00B0FF" # Blue
+C_PURP = "#D500F9" # Purple
+C_DARK = "#121212" # Card BG
+
+# 3. 데이터 엔진 (함수부)
 @st.cache_data(ttl=3600)
 def get_stock_info(ticker):
     try:
@@ -92,7 +125,8 @@ def get_stock_info(ticker):
             'roe': info.get('returnOnEquity', None),
             'name': info.get('longName', ticker)
         }
-    except: return {'mkt_cap': 0, 'per': None, 'pbr': None, 'roe': None, 'name': ticker}
+    except:
+        return {'mkt_cap': 0, 'per': None, 'pbr': None, 'roe': None, 'name': ticker}
 
 @st.cache_data(ttl=1800)
 def get_clean_data(ticker, period="2y"):
@@ -107,6 +141,7 @@ def get_clean_data(ticker, period="2y"):
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
         df['MA120'] = df['Close'].rolling(120).mean()
+        
         df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
         df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
         df['MACD'] = df['EMA12'] - df['EMA26']
@@ -122,7 +157,7 @@ def get_clean_data(ticker, period="2y"):
         high_14 = df['High'].rolling(14).max()
         df['Stoch_K'] = ((df['Close'] - low_14) / (high_14 - low_14)) * 100
         df['Stoch_D'] = df['Stoch_K'].rolling(3).mean()
-        
+
         tp = (df['High'] + df['Low'] + df['Close']) / 3
         df['CCI'] = (tp - tp.rolling(20).mean()) / (0.015 * tp.rolling(20).std())
         df['WillR'] = ((high_14 - df['Close']) / (high_14 - low_14)) * -100
@@ -130,17 +165,20 @@ def get_clean_data(ticker, period="2y"):
         std_20 = df['Close'].rolling(20).std()
         df['BB_Upper'] = df['MA20'] + (std_20 * 2)
         df['BB_Lower'] = df['MA20'] - (std_20 * 2)
+
         df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
         df['KC_Upper'] = df['MA20'] + (df['ATR'] * 1.5)
         df['KC_Lower'] = df['MA20'] - (df['ATR'] * 1.5)
 
         df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        
         ad_factor = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / (df['High'] - df['Low']).replace(0, 1)
         df['AD_Line'] = (ad_factor * df['Volume']).fillna(0).cumsum()
 
         typical = (df['High'] + df['Low'] + df['Close']) / 3
         mf = typical * df['Volume']
         df['MFI'] = 100 - (100 / (1 + (mf.where(typical > typical.shift(1), 0).rolling(14).sum() / mf.where(typical < typical.shift(1), 0).rolling(14).sum())))
+
         df['VWAP'] = (df['Volume'] * (df['High'] + df['Low'] + df['Close']) / 3).rolling(20).sum() / df['Volume'].rolling(20).sum()
         df['ROC'] = ((df['Close'] - df['Close'].shift(12)) / df['Close'].shift(12)) * 100
 
@@ -158,6 +196,7 @@ def get_clean_data(ticker, period="2y"):
 
         df['Log_Ret'] = np.log(df['Close'] / df['Close'].shift(1))
         df['Volatility'] = (df['High'] - df['Low']) / df['Close'] * 100
+
         df.dropna(inplace=True)
         return df
     except: return None
@@ -171,11 +210,12 @@ def get_benchmark(mode):
         return df
     except: return None
 
-# 분석 로직
+# 분석 로직 함수들
 def get_18_tech_signals(df):
     last = df.iloc[-1]
     signals = []
     
+    # Simple Checks
     signals.append(("SMA 20", f"{last['MA20']:.2f}", "Bull" if last['Close'] > last['MA20'] else "Bear"))
     signals.append(("SMA 60", f"{last['MA60']:.2f}", "Bull" if last['Close'] > last['MA60'] else "Bear"))
     signals.append(("SMA 120", f"{last['MA120']:.2f}", "Bull" if last['Close'] > last['MA120'] else "Bear"))
@@ -191,21 +231,23 @@ def get_18_tech_signals(df):
     k = last['Stoch_K']
     d = last['Stoch_D']
     signals.append(("Stoch", f"{k:.0f}/{d:.0f}", "Bull" if k > d else "Bear"))
-    
+
     cci = last['CCI']
     bias = "Bear" if cci > 100 else ("Bull" if cci < -100 else "Neutral")
     signals.append(("CCI", f"{cci:.0f}", bias))
-    
+
     wr = last['WillR']
     bias = "Bull" if wr < -80 else ("Bear" if wr > -20 else "Neutral")
     signals.append(("Will %R", f"{wr:.0f}", bias))
 
+    # Bands
     pos, bias = "Mid", "Neutral"
     if last['Close'] > last['BB_Upper']: pos, bias = "High", "Bear"
     elif last['Close'] < last['BB_Lower']: pos, bias = "Low", "Bull"
     signals.append(("Bollinger", pos, bias))
 
     signals.append(("ATR", f"{last['ATR']:.2f}", "Neutral"))
+    
     obv_ma = df['OBV'].rolling(20).mean().iloc[-1]
     signals.append(("OBV", "Up" if last['OBV'] > obv_ma else "Down", "Bull" if last['OBV'] > obv_ma else "Bear"))
 
@@ -214,6 +256,7 @@ def get_18_tech_signals(df):
     signals.append(("MFI", f"{mfi:.0f}", bias))
 
     signals.append(("VWAP", f"{last['VWAP']:.2f}", "Bull" if last['Close'] > last['VWAP'] else "Bear"))
+
     roc = last['ROC']
     signals.append(("ROC", f"{roc:.2f}%", "Bull" if roc > 0 else "Bear"))
 
@@ -232,32 +275,41 @@ def get_18_tech_signals(df):
 
     vol = last['Volatility']
     signals.append(("Vol Ratio", f"{vol:.2f}%", "Neutral"))
+
     return signals
 
 def check_rsi_divergence(df, window=10):
     if len(df) < window * 2: return None
     current = df.iloc[-window:]
     prev = df.iloc[-window*2:-window]
+    
     if current.empty or prev.empty: return None
 
-    curr_low_price, prev_low_price = current['Close'].min(), prev['Close'].min()
+    curr_low_price = current['Close'].min()
+    prev_low_price = prev['Close'].min()
     curr_low_rsi = current.loc[current['Close'].idxmin()]['RSI']
     prev_low_rsi = prev.loc[prev['Close'].idxmin()]['RSI']
+
     if curr_low_price < prev_low_price and curr_low_rsi > prev_low_rsi: return "REG_BULL"
     
-    curr_high_price, prev_high_price = current['Close'].max(), prev['Close'].max()
+    curr_high_price = current['Close'].max()
+    prev_high_price = prev['Close'].max()
     curr_high_rsi = current.loc[current['Close'].idxmax()]['RSI']
     prev_high_rsi = prev.loc[prev['Close'].idxmax()]['RSI']
+
     if curr_high_price > prev_high_price and curr_high_rsi < prev_high_rsi: return "REG_BEAR"
     return None
 
 def check_ttm_squeeze(df):
     last = df.iloc[-1]
-    return (last['BB_Upper'] - last['BB_Lower']) < (last['KC_Upper'] - last['KC_Lower'])
+    bb_width = last['BB_Upper'] - last['BB_Lower']
+    kc_width = last['KC_Upper'] - last['KC_Lower']
+    return bb_width < kc_width
 
 def check_candle_pattern(df):
     last = df.iloc[-1]
-    open_p, close_p, high_p, low_p = last['Open'], last['Close'], last['High'], last['Low']
+    open_p, close_p = last['Open'], last['Close']
+    high_p, low_p = last['High'], last['Low']
     body = abs(close_p - open_p)
     upper_shadow = high_p - max(open_p, close_p)
     lower_shadow = min(open_p, close_p) - low_p
@@ -277,6 +329,7 @@ def run_monte_carlo(df, num_simulations=1000, days=120):
     
     sim_df = pd.DataFrame()
     max_peaks = []
+
     for x in range(num_simulations):
         price_series = [last_price]
         price = last_price
@@ -292,6 +345,7 @@ def run_monte_carlo(df, num_simulations=1000, days=120):
     
     hit_days = []
     winning_peaks = []
+
     for col in sim_df.columns:
         if sim_df[col].max() >= target_price:
             hits = sim_df.index[sim_df[col] >= target_price].tolist()
@@ -302,10 +356,12 @@ def run_monte_carlo(df, num_simulations=1000, days=120):
         avg_days_needed = int(np.mean(hit_days))
         future_date = datetime.now() + timedelta(days=avg_days_needed)
         expected_date_str = future_date.strftime("%Y-%m-%d")
-    else: expected_date_str = "도달 불가"
+    else:
+        expected_date_str = "도달 불가"
 
     if winning_peaks: target_peak_price = np.median(winning_peaks)
     else: target_peak_price = np.median(max_peaks)
+        
     peak_yield = (target_peak_price - last_price) / last_price * 100
     ending = sim_df.iloc[-1, :]
     return sim_df, np.percentile(ending, 90), np.percentile(ending, 10), np.mean(ending), win_prob, expected_date_str, peak_yield
@@ -326,6 +382,7 @@ def analyze_whale_mode(df, benchmark_df, stock_info, monte_prob):
     volatility = last['Volatility']
     mkt_cap = stock_info['mkt_cap']
 
+    # Metrics
     recent_20 = df.iloc[-20:]
     price_rank = (close - recent_20['Close'].min()) / (recent_20['Close'].max() - recent_20['Close'].min() + 1e-9) * 100
     obv_rank = (last['OBV'] - recent_20['OBV'].min()) / (recent_20['OBV'].max() - recent_20['OBV'].min() + 1e-9) * 100
@@ -345,11 +402,13 @@ def analyze_whale_mode(df, benchmark_df, stock_info, monte_prob):
     poc_signal = "Supp"
     if close > poc_price * 1.02: poc_signal = "Bull"
     elif close < poc_price * 0.98: poc_signal = "Bear"
+
     mfi_val = last['MFI']
     mfi_signal = "Neut"
     if mfi_val < 20: mfi_signal = "Oversold"
     elif mfi_val > 80: mfi_signal = "Overbot"
 
+    # Scoring
     score = 50
     cards = []
     red_flags = 0
@@ -388,13 +447,18 @@ def analyze_whale_mode(df, benchmark_df, stock_info, monte_prob):
     elif close < c_bot: score -= 10; cards.append({'title':'ICHIMOKU','stat':'BELOW CLOUD','desc':'Resistance', 'col':C_BEAR})
     else: cards.append({'title':'ICHIMOKU','stat':'IN CLOUD','desc':'Choppy', 'col':C_NEUT})
 
-    if close > last['MA20']: score += 10; cards.append({'title':'TREND','stat':'UPTREND','desc':'Above MA20', 'col':C_BULL})
-    else: score -= 15; cards.append({'title':'TREND','stat':'DOWNTREND','desc':'Below MA20', 'col':C_BEAR})
+    if close > last['MA20']: 
+        score += 10
+        cards.append({'title':'TREND','stat':'UPTREND','desc':'Above MA20', 'col':C_BULL})
+    else: 
+        score -= 15
+        cards.append({'title':'TREND','stat':'DOWNTREND','desc':'Below MA20', 'col':C_BEAR})
 
     if monte_prob >= 40: score += 10; cards.append({'title':'PROBABILITY','stat':f'{monte_prob:.0f}% (>30%)','desc':'High Chance', 'col':C_BULL})
     elif monte_prob <= 10: score -= 10; cards.append({'title':'PROBABILITY','stat':f'{monte_prob:.0f}% (>30%)','desc':'Low Chance', 'col':C_BEAR})
     else: cards.append({'title':'PROBABILITY','stat':f'{monte_prob:.0f}% (>30%)','desc':'Moderate', 'col':C_NEUT})
 
+    # Extra
     if ad_signal == "Bull": score += 15
     elif ad_signal == "Bear": score -= 15; red_flags += 1
     if poc_signal == "Bull": score += 10
@@ -404,6 +468,7 @@ def analyze_whale_mode(df, benchmark_df, stock_info, monte_prob):
     if red_flags > 0: score = min(score, 65)
     score = max(0, min(100, int(score)))
 
+    # Mode
     if mkt_cap < 10_000_000_000 or volatility > 3.0:
         mode_txt, theme_col = "AGGRESSIVE", C_PURP
         stop_mult, target_mult = 2.5, 5.0
@@ -438,12 +503,19 @@ def analyze_whale_mode(df, benchmark_df, stock_info, monte_prob):
 def get_score_history(df, bench_df, stock_info):
     history = []
     for i in range(9, -1, -1):
-        if i == 0: sliced_df, sliced_bench = df, bench_df
-        else: sliced_df, sliced_bench = df.iloc[:-i], bench_df.iloc[:-i]
+        if i == 0:
+            sliced_df = df
+            sliced_bench = bench_df
+        else:
+            sliced_df = df.iloc[:-i]
+            sliced_bench = bench_df.iloc[:-i]
 
-        if len(sliced_bench) > len(sliced_df): sliced_bench = sliced_bench.iloc[-len(sliced_df):]
+        if len(sliced_bench) > len(sliced_df):
+            sliced_bench = sliced_bench.iloc[-len(sliced_df):]
+
         label = sliced_df.index[-1].strftime('%m-%d')
         sim_res = run_monte_carlo(sliced_df, num_simulations=100, days=120) 
+        
         res = analyze_whale_mode(sliced_df, sliced_bench, stock_info, sim_res[4])
         history.append({'day': label, 'score': res['score'], 'adv': res['adv_features']})
     return history
@@ -456,17 +528,17 @@ def generate_ai_report_text(ticker, analysis, stock_info, expected_date_str, pea
     except: vol_val = 0.0
 
     html = f"""
-    <div style="font-size:0.95rem; color:#ddd; line-height:1.6;">
+    <div style="font-size:0.95em; color:#ddd; line-height:1.6;">
         <div style="margin-bottom:12px;">
             <strong style="color:#fff;">AI SUMMARY</strong><br>
             Current Score: <strong style="color:{analysis['color']}">{analysis['score']} ({analysis['title']})</strong>
         </div>
         <div style="margin-bottom:12px;">
-            <strong style="color:#fff;">PREDICTION</strong>
+            <strong style="color:#fff;">ANALYSIS</strong>
             <ul style="padding-left:15px; margin-top:4px; color:#bbb;">
-                <li>Vol ({vol_val}%) implies move within <b>{expected_date_str.split('-')[-1]} days</b>.</li>
-                <li>Potential Peak: <b>{peak_yield:+.1f}%</b>.</li>
-                <li>Position Size: <b>{analysis['kelly']:.1f}%</b> (Win Prob: {prob:.0f}%)</li>
+                <li>Vol ({vol_val}%) indicates move within <b>{expected_date_str.split('-')[-1]} days</b>.</li>
+                <li>Potential upside peak: <b>{peak_yield:+.1f}%</b>.</li>
+                <li>Rec. Position: <b>{analysis['kelly']:.1f}%</b> (Win Prob: {prob:.0f}%)</li>
             </ul>
         </div>
     </div>
@@ -474,47 +546,44 @@ def generate_ai_report_text(ticker, analysis, stock_info, expected_date_str, pea
     return html
 
 # --------------------------
-# UI 렌더링 (화면 출력용)
+# Main UI Generation
 # --------------------------
-def render_dashboard_on_screen(ticker, mkt_cap, analysis, monte_res, score_history, stock_info):
+def render_ui(ticker, mkt_cap, analysis, monte_res, score_history, stock_info):
     sim_df, opt, pes, mean, win_prob, expected_date_str, peak_yield = monte_res
-    
-    # Header Format
+
+    # Money formatter
     if mkt_cap > 0:
         val_won = mkt_cap * 1350
         if val_won > 100_000_000_000_000: cap_str = f"{val_won/100_000_000_000_000:.1f}T KRW"
         elif val_won > 1_000_000_000_000: cap_str = f"{val_won/1_000_000_000_000:.1f}T KRW"
         else: cap_str = f"{val_won/100_000_000_000:.0f}B KRW"
     else: cap_str = "-"
-    
+
     peak_color = C_PURP if peak_yield > 50 else (C_BULL if peak_yield > 0 else C_BEAR)
     
-    # 1. Header
-    st.markdown(f"""
-    <div class="header-main">
-        <div>
-            <h1 style="font-size:3rem; font-weight:900; margin:0; line-height:1; letter-spacing:-1px;">{ticker}</h1>
-            <div style="font-size:0.9rem; color:#888; margin-top:5px; font-weight:500;">
-                {stock_info.get('name','')} | {cap_str}
-                <span style="background:{analysis['theme']}22; color:{analysis['theme']}; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:700; margin-left:8px;">{analysis['mode']}</span>
-            </div>
-        </div>
-        <div style="text-align:right;">
-            <div style="display:inline-block; margin-left:15px;">
-                <div style="font-size:0.75rem; color:#666; font-weight:700;">PROB</div>
-                <div style="font-size:1.8rem; font-weight:800; color:{C_BULL if win_prob>=40 else '#888'};">{win_prob:.0f}%</div>
-            </div>
-            <div style="display:inline-block; margin-left:15px;">
-                <div style="font-size:0.75rem; color:#666; font-weight:700;">SCORE</div>
-                <div style="font-size:1.8rem; font-weight:800; color:{analysis['color']};">{analysis['score']}</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Tables Construction
+    dates = [item['day'] for item in score_history]
+    scores = [item['score'] for item in score_history]
+    gaps = [item['adv']['whale_gap'] for item in score_history]
+    
+    def get_cell_style(val, type='score'):
+        color = "#888"
+        bg = "transparent"
+        weight = "normal"
+        if type == 'score':
+            if val >= 80: color, bg, weight = C_BULL, "#00E67611", "bold"
+            elif val >= 60: color, bg, weight = C_CYAN, "#00B0FF11", "bold"
+            elif val <= 40: color, bg, weight = C_BEAR, "#FF525211", "bold"
+        elif type == 'gap':
+            if val > 10: color, weight = C_BULL, "bold"
+            elif val < -10: color, weight = C_BEAR, "bold"
+        return f"color:{color}; background:{bg}; font-weight:{weight};"
 
-    # 2. Report & Cards
+    # HTML Generator
     report_html = generate_ai_report_text(ticker, analysis, stock_info, expected_date_str, peak_yield)
-    cards_html = "<div class='grid-2'>"
+    
+    # Card Loop
+    cards_html = "<div style='display:grid; grid-template-columns: repeat(2, 1fr); gap:8px;'>"
     for c in analysis['cards']:
         cards_html += f"""
         <div style="background:#222; padding:10px; border-radius:6px; border-left:3px solid {c['col']};">
@@ -522,207 +591,131 @@ def render_dashboard_on_screen(ticker, mkt_cap, analysis, monte_res, score_histo
             <div style="font-size:0.85rem; color:#eee; font-weight:600; margin-top:2px;">{c['stat']}</div>
         </div>"""
     cards_html += "</div>"
-    
-    st.markdown(f"""
-    <div class="box-dark">
-        {report_html}
-        <div style="margin-top:15px; padding-top:15px; border-top:1px dashed #333;">
-            <div style="font-size:0.75rem; color:#666; font-weight:700; margin-bottom:8px;">KEY DRIVERS</div>
-            {cards_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # 3. Strategy & Momentum
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown(f"""
-        <div class="box-dark">
-            <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px; display:flex; align-items:center;">
-                <span style="width:4px; height:16px; background:{analysis['color']}; margin-right:8px; border-radius:2px;"></span>TRADING PLAN
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;">
-                <span style="color:#888;">ENTRY</span> <span style="color:#fff; font-weight:600;">${analysis['close']:.2f}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;">
-                <span style="color:#888;">TARGET</span> <span style="color:{C_BULL}; font-weight:600;">${analysis['target']:.2f}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.9rem;">
-                <span style="color:#888;">STOP</span> <span style="color:{C_BEAR}; font-weight:600;">${analysis['stop']:.2f}</span>
-            </div>
-            <div style="background:#1a1a1a; padding:10px; border-radius:8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#888; font-size:0.8rem;">Expected</span>
-                    <span style="color:{C_CYAN}; font-weight:700; font-size:1rem;">{expected_date_str}</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-                    <span style="color:#888; font-size:0.8rem;">Max Peak</span>
-                    <span style="color:{peak_color}; font-weight:700; font-size:0.9rem;">{peak_yield:+.1f}%</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        mom_cells = ""
-        for item in score_history:
-            s = item['score']
-            g = item['adv']['whale_gap']
-            
-            s_col = "#888"
-            if s >= 80: s_col = C_BULL
-            elif s >= 60: s_col = C_CYAN
-            elif s <= 40: s_col = C_BEAR
-            
-            g_col = "#888"
-            if g > 10: g_col = C_BULL
-            elif g < -10: g_col = C_BEAR
-            
-            mom_cells += f"""
-            <div style="display:flex; flex-direction:column; align-items:center; min-width:55px; margin-right:10px;">
-                <span style="font-size:0.7rem; color:#666; margin-bottom:4px;">{item['day']}</span>
-                <span style="font-size:0.9rem; color:{s_col}; font-weight:bold; padding:4px 8px; border-radius:4px; border:1px solid #333;">{s}</span>
-                <span style="font-size:0.7rem; color:{g_col}; font-weight:bold; margin-top:4px;">{int(g)}</span>
-            </div>"""
-
-        st.markdown(f"""
-        <div class="box-dark" style="overflow:hidden;">
-            <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">MOMENTUM (10D)</div>
-            <div class="scroll-x-container">
-                <div class="scroll-x-content">
-                    {mom_cells}
-                </div>
-            </div>
-            <div style="font-size:0.7rem; color:#555; margin-top:5px; text-align:right;">*Scroll right</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # 4. Tech Indicators
-    col_t1, col_t2 = st.columns(2)
-    tech_rows_1, tech_rows_2 = "", ""
-    
+    # Tech Table Loop
+    tech_rows = ""
     for i in range(18):
         name, val, bias = analysis['tech_signals'][i]
         c = C_BULL if bias == "Bull" else (C_BEAR if bias == "Bear" else C_NEUT)
-        row = f"""
-        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #2A2A2A; font-size:0.8rem;">
+        tech_rows += f"""
+        <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #333; font-size:0.8rem;">
+            <span style="color:#aaa;">{name}</span>
+            <span style="color:{c}; font-weight:600;">{val}</span>
+        </div>"""
+
+    # Momentum Scroll Table
+    mom_cells = ""
+    for d, s, g in zip(dates, scores, gaps):
+        mom_cells += f"""
+        <div style="display:flex; flex-direction:column; align-items:center; min-width:50px; margin-right:10px;">
+            <span style="font-size:0.7rem; color:#666; margin-bottom:4px;">{d}</span>
+            <span style="font-size:0.9rem; {get_cell_style(s, 'score')} padding:4px 8px; border-radius:4px; border:1px solid #333;">{s}</span>
+            <span style="font-size:0.7rem; {get_cell_style(g, 'gap')} margin-top:4px;">{int(g)}</span>
+        </div>"""
+
+    # --- FINAL HTML ASSEMBLY ---
+    # 중요: st.components.v1.html 대신 st.markdown으로 렌더링하기 위해 전체를 div로 감쌈
+    # iframe 제거 -> 스크롤 문제 해결
+    full_html = f"""
+    <div style="font-family:'Inter', sans-serif; max-width:100%; overflow-x:hidden;">
+        
+        <div class="header-main" style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:20px; border-bottom:1px solid #333; padding-bottom:15px;">
+            <div>
+                <h1 style="font-size:2.8rem; font-weight:900; margin:0; line-height:1; letter-spacing:-1px;">{ticker}</h1>
+                <div style="font-size:0.9rem; color:#888; margin-top:5px; font-weight:500;">
+                    {stock_info.get('name','')} <span style="margin:0 5px; color:#444;">|</span> {cap_str}
+                    <span style="background:{analysis['theme']}22; color:{analysis['theme']}; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:700; margin-left:8px; vertical-align:middle;">{analysis['mode']}</span>
+                </div>
+            </div>
+            <div class="stat-grid" style="text-align:right;">
+                <div style="display:inline-block; margin-left:15px;">
+                    <div style="font-size:0.75rem; color:#666; font-weight:700;">WIN PROB</div>
+                    <div style="font-size:1.8rem; font-weight:800; color:{C_BULL if win_prob>=40 else '#888'};">{win_prob:.0f}%</div>
+                </div>
+                <div style="display:inline-block; margin-left:15px;">
+                    <div style="font-size:0.75rem; color:#666; font-weight:700;">AI SCORE</div>
+                    <div style="font-size:1.8rem; font-weight:800; color:{analysis['color']};">{analysis['score']}</div>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:{C_DARK}; border:1px solid #333; border-radius:12px; padding:15px; margin-bottom:20px;">
+            {report_html}
+            <div style="margin-top:15px; padding-top:15px; border-top:1px dashed #333;">
+                <div style="font-size:0.75rem; color:#666; font-weight:700; margin-bottom:8px;">KEY DRIVERS</div>
+                {cards_html}
+            </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-bottom:20px;">
+            <div style="background:{C_DARK}; border:1px solid #333; border-radius:12px; padding:15px;">
+                <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px; display:flex; align-items:center;">
+                    <span style="width:4px; height:16px; background:{analysis['color']}; margin-right:8px; border-radius:2px;"></span>TRADING PLAN
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;">
+                    <span style="color:#888;">ENTRY</span> <span style="color:#fff; font-weight:600;">${analysis['close']:.2f}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;">
+                    <span style="color:#888;">TARGET</span> <span style="color:{C_BULL}; font-weight:600;">${analysis['target']:.2f}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.9rem;">
+                    <span style="color:#888;">STOP</span> <span style="color:{C_BEAR}; font-weight:600;">${analysis['stop']:.2f}</span>
+                </div>
+                <div style="background:#1a1a1a; padding:10px; border-radius:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#888; font-size:0.8rem;">Expected</span>
+                        <span style="color:{C_CYAN}; font-weight:700; font-size:1rem;">{expected_date_str}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                        <span style="color:#888; font-size:0.8rem;">Max Peak</span>
+                        <span style="color:{peak_color}; font-weight:700; font-size:0.9rem;">{peak_yield:+.1f}%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background:{C_DARK}; border:1px solid #333; border-radius:12px; padding:15px; overflow:hidden;">
+                <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">MOMENTUM (10D)</div>
+                <div style="display:flex; overflow-x:auto; padding-bottom:5px;">
+                    {mom_cells}
+                </div>
+                <div style="font-size:0.7rem; color:#555; margin-top:5px; text-align:right;">*Scroll right for history</div>
+            </div>
+        </div>
+
+        <div style="background:{C_DARK}; border:1px solid #333; border-radius:12px; padding:15px;">
+            <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">TECHNICALS (18)</div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <div>{tech_rows[:len(tech_rows)//2]}</div> # Split roughly
+                <div style="border-left:1px solid #222; padding-left:15px;">{tech_rows[len(tech_rows)//2:]}</div> # CSS Slice trick not working in f-string easily, doing logic before
+            </div> 
+            # Re-doing tech rows split for grid layout
+        </div>
+    </div>
+    """
+    
+    # Tech rows splitting logic fix for HTML string
+    half = len(analysis['tech_signals']) // 2
+    col1 = ""
+    col2 = ""
+    for i in range(18):
+        name, val, bias = analysis['tech_signals'][i]
+        c = C_BULL if bias == "Bull" else (C_BEAR if bias == "Bear" else C_NEUT)
+        row = f"""<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #2A2A2A; font-size:0.8rem;">
             <span style="color:#999;">{name.split('(')[0]}</span>
             <span style="color:{c}; font-weight:600;">{val}</span>
         </div>"""
-        if i < 9: tech_rows_1 += row
-        else: tech_rows_2 += row
-        
-    st.markdown(f"""
-    <div class="box-dark">
-        <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">TECHNICAL INDICATORS</div>
-        <div class="grid-2" style="gap:20px;">
-            <div>{tech_rows_1}</div>
-            <div>{tech_rows_2}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# --------------------------
-# HTML 파일 생성용 (다운로드용)
-# --------------------------
-def generate_download_string(ticker, analysis, monte_res, score_history, stock_info):
-    # 화면용 렌더링 로직을 그대로 가져오되, Streamlit 함수 대신 순수 HTML 문자열로 반환
-    sim_df, opt, pes, mean, win_prob, expected_date_str, peak_yield = monte_res
-    
-    # Header logic (same)
-    mkt_cap = stock_info['mkt_cap']
-    if mkt_cap > 0:
-        val_won = mkt_cap * 1350
-        if val_won > 100_000_000_000_000: cap_str = f"{val_won/100_000_000_000_000:.1f}T KRW"
-        elif val_won > 1_000_000_000_000: cap_str = f"{val_won/1_000_000_000_000:.1f}T KRW"
-        else: cap_str = f"{val_won/100_000_000_000:.0f}B KRW"
-    else: cap_str = "-"
-    peak_color = C_PURP if peak_yield > 50 else (C_BULL if peak_yield > 0 else C_BEAR)
-
-    report_html = generate_ai_report_text(ticker, analysis, stock_info, expected_date_str, peak_yield)
-    
-    cards_html = "<div class='grid-2'>"
-    for c in analysis['cards']:
-        cards_html += f"""<div style="background:#222; padding:10px; border-radius:6px; border-left:3px solid {c['col']};"><div style="font-size:0.7rem; color:#888; font-weight:700;">{c['title']}</div><div style="font-size:0.85rem; color:#eee; font-weight:600; margin-top:2px;">{c['stat']}</div></div>"""
-    cards_html += "</div>"
-    
-    mom_cells = ""
-    for item in score_history:
-        s, g = item['score'], item['adv']['whale_gap']
-        s_col = C_BULL if s>=80 else (C_CYAN if s>=60 else (C_BEAR if s<=40 else "#888"))
-        g_col = C_BULL if g>10 else (C_BEAR if g<-10 else "#888")
-        mom_cells += f"""<div style="display:flex; flex-direction:column; align-items:center; min-width:55px; margin-right:10px;"><span style="font-size:0.7rem; color:#666; margin-bottom:4px;">{item['day']}</span><span style="font-size:0.9rem; color:{s_col}; font-weight:bold; padding:4px 8px; border-radius:4px; border:1px solid #333;">{s}</span><span style="font-size:0.7rem; color:{g_col}; font-weight:bold; margin-top:4px;">{int(g)}</span></div>"""
-
-    col1, col2 = "", ""
-    for i in range(18):
-        name, val, bias = analysis['tech_signals'][i]
-        c = C_BULL if bias == "Bull" else (C_BEAR if bias == "Bear" else C_NEUT)
-        row = f"""<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #2A2A2A; font-size:0.8rem;"><span style="color:#999;">{name.split('(')[0]}</span><span style="color:{c}; font-weight:600;">{val}</span></div>"""
         if i < 9: col1 += row
         else: col2 += row
 
-    full_html = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{ticker} Analysis</title>
-        <style>{COMMON_CSS} .report-container {{ max-width: 800px; margin: 0 auto; padding: 20px; }}</style>
-    </head>
-    <body>
-        <div class="report-container">
-            <div class="header-main">
-                <div>
-                    <h1 style="font-size:3rem; font-weight:900; margin:0; line-height:1;">{ticker}</h1>
-                    <div style="font-size:0.9rem; color:#888; margin-top:5px;">{stock_info.get('name','')} | {cap_str} <span style="background:{analysis['theme']}22; color:{analysis['theme']}; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.7rem;">{analysis['mode']}</span></div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="display:inline-block; margin-left:15px;"><div style="font-size:0.75rem; color:#666; font-weight:700;">PROB</div><div style="font-size:1.8rem; font-weight:800; color:{C_BULL if win_prob>=40 else '#888'};">{win_prob:.0f}%</div></div>
-                    <div style="display:inline-block; margin-left:15px;"><div style="font-size:0.75rem; color:#666; font-weight:700;">SCORE</div><div style="font-size:1.8rem; font-weight:800; color:{analysis['color']};">{analysis['score']}</div></div>
-                </div>
-            </div>
-            
-            <div class="box-dark">
-                {report_html}
-                <div style="margin-top:15px; padding-top:15px; border-top:1px dashed #333;">
-                    <div style="font-size:0.75rem; color:#666; font-weight:700; margin-bottom:8px;">KEY DRIVERS</div>
-                    {cards_html}
-                </div>
-            </div>
+    full_html = full_html.replace(f"{{tech_rows[:len(tech_rows)//2]}}", col1)
+    full_html = full_html.replace(f"{{tech_rows[len(tech_rows)//2:]}}", col2)
 
-            <div class="grid-responsive">
-                <div class="box-dark">
-                    <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">TRADING PLAN</div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;"><span style="color:#888;">ENTRY</span> <span style="color:#fff; font-weight:600;">${analysis['close']:.2f}</span></div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem;"><span style="color:#888;">TARGET</span> <span style="color:{C_BULL}; font-weight:600;">${analysis['target']:.2f}</span></div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.9rem;"><span style="color:#888;">STOP</span> <span style="color:{C_BEAR}; font-weight:600;">${analysis['stop']:.2f}</span></div>
-                    <div style="background:#1a1a1a; padding:10px; border-radius:8px;">
-                        <div style="display:flex; justify-content:space-between;"><span style="color:#888; font-size:0.8rem;">Expected</span><span style="color:{C_CYAN}; font-weight:700;">{expected_date_str}</span></div>
-                        <div style="display:flex; justify-content:space-between; margin-top:4px;"><span style="color:#888; font-size:0.8rem;">Peak</span><span style="color:{peak_color}; font-weight:700;">{peak_yield:+.1f}%</span></div>
-                    </div>
-                </div>
-                <div class="box-dark" style="overflow:hidden;">
-                    <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">MOMENTUM (10D)</div>
-                    <div class="scroll-x-container"><div class="scroll-x-content">{mom_cells}</div></div>
-                </div>
-            </div>
-
-            <div class="box-dark">
-                <div style="font-size:0.9rem; color:#fff; font-weight:700; margin-bottom:12px;">TECHNICALS</div>
-                <div class="grid-2" style="gap:20px;"><div>{col1}</div><div>{col2}</div></div>
-            </div>
-            <div style="text-align:center; color:#555; font-size:0.8rem; margin-top:20px;">WQA Report • {datetime.now().strftime('%Y-%m-%d')}</div>
-        </div>
-    </body>
-    </html>
-    """
     return full_html
 
 # --------------------------
-# Main App
+# Main Execution
 # --------------------------
+# TITLE HEADER (No more goofy emoji)
 st.markdown("""
 <div style='text-align: center; padding: 20px 0 30px 0;'>
     <div style='font-size: 1.5rem; font-weight: 900; letter-spacing: 1px; color: #fff;'>WHALE QUANT <span style='color:#00B0FF'>ANALYTICS</span></div>
@@ -730,7 +723,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-ticker_input = st.text_input("", placeholder="Ticker Symbol (e.g. NVDA, TSLA, PLTR)")
+ticker_input = st.text_input("", placeholder="Ticker Symbol (e.g. NVDA, TSLA, BTC-USD)")
 
 if st.button("RUN ANALYSIS"):
     if not ticker_input:
@@ -743,10 +736,12 @@ if st.button("RUN ANALYSIS"):
         for ticker in tickers:
             if not ticker: continue
             
-            with st.spinner(f"Analyzing {ticker}..."):
+            # Progress Spinner
+            with st.spinner(f"Processing Institutional Data for {ticker}..."):
                 try:
                     stock_info = get_stock_info(ticker)
                     df = get_clean_data(ticker)
+                    
                     if df is None:
                         st.error(f"❌ {ticker}: Data Unavailable.")
                         continue
@@ -759,20 +754,10 @@ if st.button("RUN ANALYSIS"):
                     analysis = analyze_whale_mode(df, bench_df, stock_info, monte_res[4])
                     score_history = get_score_history(df, bench_df, stock_info)
                     
-                    # 1. 화면에 예쁘게 그리기 (Streamlit Native)
-                    render_dashboard_on_screen(ticker, mkt_cap, analysis, monte_res, score_history, stock_info)
-                    
-                    # 2. 다운로드용 HTML 생성 (별도)
-                    dl_html = generate_download_string(ticker, analysis, monte_res, score_history, stock_info)
-                    
-                    st.download_button(
-                        label=f"📥 {ticker} 리포트 저장 (HTML)",
-                        data=dl_html,
-                        file_name=f"{ticker}_WQA_Report.html",
-                        mime="text/html",
-                        key=f"btn_{ticker}"
-                    )
-                    
+                    # 렌더링: iframe이 아닌 직접 markdown 주입
+                    html_out = render_ui(ticker, mkt_cap, analysis, monte_res, score_history, stock_info)
+                    st.markdown(html_out, unsafe_allow_html=True)
                     st.markdown("---")
+                    
                 except Exception as e:
-                    st.error(f"System Error ({ticker}): {str(e)}")
+                    st.error(f"System Error: {str(e)}")
